@@ -4,11 +4,8 @@
 """crazyflie_controller_py controller."""
 
 
-import base64
-import json
 import os
 import sys
-import threading
 from math import atan, cos, sin, tan
 
 import cv2
@@ -23,7 +20,6 @@ from controller import (
     DistanceSensor,
     Gyro,
     InertialUnit,
-    Keyboard,
     Motor,
     Robot,
 )
@@ -66,7 +62,8 @@ ANCHORS_PATH = os.path.join(INFERENCE_DIR, "inputs", "anchors.npy")
 CLASS_NAMES = ["pedestrian"]
 
 
-__RUN_ON_ONNX_RUNTIME__ = bool(os.getenv('CF_RUN_ON_ONNX_RUNTIME', 'True'))
+__RUN_ON_ONNX_RUNTIME__ = os.getenv('CF_RUN_ON_ONNX_RUNTIME', 'True').lower() not in ('false', '0', 'no')
+print(f"[crazyflie] Running ONNX Runtime inference: {__RUN_ON_ONNX_RUNTIME__}")
 
 def preprocess_image(image_bgr, input_hw):
     """Preprocess image for YOLO model."""
@@ -152,24 +149,12 @@ if __name__ == '__main__':
     camera = robot.getDevice("camera")
     camera.enable(camera_period_ms)
     display = robot.getDevice("display")
-    range_front = robot.getDevice("range_front")
-    range_front.enable(timestep)
-    range_left = robot.getDevice("range_left")
-    range_left.enable(timestep)
-    range_back = robot.getDevice("range_back")
-    range_back.enable(timestep)
-    range_right = robot.getDevice("range_right")
-    range_right.enable(timestep)
     
     # Get camera parameters
     camera_width = camera.getWidth()
     camera_height = camera.getHeight()
     camera_fov = camera.getFov()
     focal_length_px = camera_width / (2.0 * tan(camera_fov / 2.0))
-
-    ## Get keyboard
-    keyboard = Keyboard()
-    keyboard.enable(timestep)
 
     ## Initialize variables
 
@@ -231,11 +216,6 @@ if __name__ == '__main__':
             fpga_ser = None
             if not __RUN_ON_ONNX_RUNTIME__:
                 fpga_ser = get_serial_connection()
-                
-            # TODO save image here
-            # image_dir = os.path.join(os.path.dirname(__file__), "all_images")
-            # save_path = os.path.join(image_dir, "image_0.png")
-            # image_bgr, width, height = capture_image(robot, save_path=save_path)
             
             
             # # Run camera rendering and YOLO at a lower, configurable rate.
