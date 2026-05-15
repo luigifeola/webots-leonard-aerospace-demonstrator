@@ -1,0 +1,36 @@
+services:
+  webots-simulator-aerospace:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    env_file:
+      - .env
+    privileged: true
+    devices:
+      - /dev/ttyUSB0:/dev/ttyUSB0
+      - /dev/snd:/dev/snd
+    gpus: all
+    ipc: host
+    shm_size: 4g
+    ulimits:
+      memlock: -1
+    network_mode: host
+    environment:
+      DISPLAY: ${DISPLAY}
+      PULSE_SERVER: unix:/tmp/pulse/native
+    volumes:
+      - /tmp/.X11-unix:/tmp/.X11-unix
+      - ..:/workspace
+      - webots-config:/home/user/.config/Cyberbotics
+      - webots-cache:/home/user/.cache/Cyberbotics
+      - webots-share:/home/user/.local/share/Cyberbotics
+      - /run/user/${UID:-1000}/pulse/native:/tmp/pulse/native
+      - ${HOME}/.config/pulse/cookie:/home/user/.config/pulse/cookie:ro
+    user: "${UID:-1000}:${GID:-1000}"
+    stdin_open: true
+    command: webots --mode=realtime --stdout --stderr /workspace/worlds/pedestrian.wbt
+
+volumes:
+  webots-config:
+  webots-cache:
+  webots-share:

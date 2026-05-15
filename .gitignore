@@ -2,7 +2,6 @@
 .env
 __pycache__
 *.png
-*.txt
 *.npy
 *.wbproj
 *.jpg
