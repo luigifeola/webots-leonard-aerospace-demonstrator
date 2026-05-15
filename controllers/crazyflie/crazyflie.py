@@ -1,13 +1,3 @@
-#  ...........       ____  _ __
-#  |  ,-^-,  |      / __ )(_) /_______________ _____  ___
-#  | (  O  ) |     / __  / / __/ ___/ ___/ __ `/_  / / _ \
-#  | / ,..´  |    / /_/ / / /_/ /__/ /  / /_/ / / /_/  __/
-#     +.......   /_____/_/\__/\___/_/   \__,_/ /___/\___/
-
-# MIT License
-
-# Copyright (c) 2022 Bitcraze
-
 # @file crazyflie_controllers_py.py
 # Controls the crazyflie motors in webots in Python
 
@@ -24,6 +14,8 @@ from math import atan, cos, sin, tan
 import cv2
 import numpy as np
 import onnxruntime as ort
+
+
 from controller import (
     GPS,
     Camera,
@@ -53,6 +45,7 @@ from post_proc import (
     qx_y_to_float_tensor,
 )
 
+
 try:
     from pid_controller import pid_velocity_fixed_height_controller
 except ModuleNotFoundError:
@@ -68,9 +61,12 @@ OPEN_LOOP_YAW_RATE = max(0.05, float(os.getenv('CF_OPEN_LOOP_YAW_RATE', '0.6')))
 MAX_OPEN_LOOP_YAW_DELTA = max(0.05, float(os.getenv('CF_MAX_OPEN_LOOP_YAW_DELTA', '1.2')))
 YAW_STOP_TOLERANCE = max(0.001, float(os.getenv('CF_YAW_STOP_TOLERANCE', '0.01')))
 
-MODEL_PATH = os.path.join(INFERENCE_DIR, "inputs_cf", "yolo_pruned_int_fixed.onnx")
-ANCHORS_PATH = os.path.join(INFERENCE_DIR, "inputs_cf", "anchors.npy")
+MODEL_PATH = os.path.join(INFERENCE_DIR, "inputs", "yolo_pruned_int_fixed.onnx")
+ANCHORS_PATH = os.path.join(INFERENCE_DIR, "inputs", "anchors.npy")
 CLASS_NAMES = ["pedestrian"]
+
+
+__RUN_ON_ONNX_RUNTIME__ = bool(os.getenv('CF_RUN_ON_ONNX_RUNTIME', 'True'))
 
 def preprocess_image(image_bgr, input_hw):
     """Preprocess image for YOLO model."""
@@ -192,14 +188,6 @@ if __name__ == '__main__':
 
     print("\n")
 
-    print("====== Controls =======\n\n")
-
-    print(" The Crazyflie can be controlled from your keyboard!\n")
-    print(" All controllable movement is in body coordinates\n")
-    print("- Use the up, back, right and left button to move in the horizontal plane\n")
-    print("- Use Q and E to rotate around yaw ")
-    print("- Use W and S to go up and down\n ")
-
     print("\n====== Crazyflie Drone with Local YOLO Detection ======\n")
     
     # Main loop:
@@ -238,7 +226,18 @@ if __name__ == '__main__':
             # print(f"Taking off to {height_desired} m")
         else:           
             takeoff_done = True
-
+            
+            # get serial conn
+            fpga_ser = None
+            if not __RUN_ON_ONNX_RUNTIME__:
+                fpga_ser = get_serial_connection()
+                
+            # TODO save image here
+            # image_dir = os.path.join(os.path.dirname(__file__), "all_images")
+            # save_path = os.path.join(image_dir, "image_0.png")
+            # image_bgr, width, height = capture_image(robot, save_path=save_path)
+            
+            
             # # Run camera rendering and YOLO at a lower, configurable rate.
             # Capture camera image
             raw_image = camera.getImage()
@@ -249,7 +248,13 @@ if __name__ == '__main__':
             image = cv2.cvtColor(image, cv2.COLOR_BGRA2BGR)  # Convert Webots image format to OpenCV BGR
 
             if not one_shot_completed and planned_yaw_delta is None:
-                detections = predict(image)
+                if __RUN_ON_ONNX_RUNTIME__:
+                    detections = predict(image)
+                else:
+                    print("ONNX Runtime inference is disabled. Skipping detection.")
+                    raise RuntimeError("ONNX Runtime inference is disabled. Set __RUN_ON_ONNX_RUNTIME__ = True to enable.")
+                    # TODO add FPGA inference option here
+                    
                 if detections and len(detections[0]) > 0:
                     # Get the first detection
                     box = detections[0][0]
@@ -325,3 +330,8 @@ if __name__ == '__main__':
         past_time = current_time
         past_x_global = x_global
         past_y_global = y_global
+
+
+        # close serial conn
+        if not __RUN_ON_ONNX_RUNTIME__:
+            close_serial_connection(fpga_ser)
