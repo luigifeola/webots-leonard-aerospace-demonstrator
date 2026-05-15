@@ -1,0 +1,3 @@
+[submodule "services/tristan-yolo-py-inference"]
+	path = services/tristan-yolo-py-inference
+	url = git@github.com:luigifeola/tristan-yolo-py-inference.git
