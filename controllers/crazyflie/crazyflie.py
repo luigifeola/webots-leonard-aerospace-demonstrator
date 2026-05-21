@@ -41,6 +41,7 @@ from post_proc import (
     qx_y_to_float_tensor,
 )
 
+from fpga_inference import predict_with_fpga, get_serial_connection, close_serial_connection
 
 try:
     from pid_controller import pid_velocity_fixed_height_controller
@@ -175,6 +176,14 @@ if __name__ == '__main__':
 
     print("\n====== Crazyflie Drone with Local YOLO Detection ======\n")
     
+    # get serial conn
+    fpga_ser = None
+    if not __RUN_ON_ONNX_RUNTIME__:
+        fpga_ser = get_serial_connection()
+        print("Serial connection established for FPGA inference.")
+    else:
+        print("ONNX Runtime inference enabled. Skipping FPGA serial connection.")
+
     # Main loop:
     while robot.step(timestep) != -1:
         current_time = robot.getTime()
@@ -212,11 +221,6 @@ if __name__ == '__main__':
         else:           
             takeoff_done = True
             
-            # get serial conn
-            fpga_ser = None
-            if not __RUN_ON_ONNX_RUNTIME__:
-                fpga_ser = get_serial_connection()
-            
             
             # # Run camera rendering and YOLO at a lower, configurable rate.
             # Capture camera image
@@ -231,9 +235,8 @@ if __name__ == '__main__':
                 if __RUN_ON_ONNX_RUNTIME__:
                     detections = predict(image)
                 else:
-                    print("ONNX Runtime inference is disabled. Skipping detection.")
-                    raise RuntimeError("ONNX Runtime inference is disabled. Set __RUN_ON_ONNX_RUNTIME__ = True to enable.")
-                    # TODO add FPGA inference option here
+                    print("Running FPGA inference...")
+                    detections = predict_with_fpga(fpga_ser, image)
                     
                 if detections and len(detections[0]) > 0:
                     # Get the first detection
@@ -314,4 +317,8 @@ if __name__ == '__main__':
 
         # close serial conn
         if not __RUN_ON_ONNX_RUNTIME__:
-            close_serial_connection(fpga_ser)
+            try:
+                close_serial_connection(fpga_ser)
+                print("Serial connection closed successfully.")
+            except Exception as e:
+                print(f"Error while closing serial connection: {e}")
