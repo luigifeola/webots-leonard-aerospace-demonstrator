@@ -53,6 +53,8 @@ except ModuleNotFoundError:
     raise
 
 FLYING_ATTITUDE = 1
+LANDING_SPEED = 0.2  # Speed in m/s to descend
+GROUND_THRESHOLD = 0.05  # Altitude to consider as landed
 CAMERA_PERIOD_MS = 200
 OPEN_LOOP_YAW_RATE = max(0.05, float(os.getenv('CF_OPEN_LOOP_YAW_RATE', '0.6')))
 MAX_OPEN_LOOP_YAW_DELTA = max(0.05, float(os.getenv('CF_MAX_OPEN_LOOP_YAW_DELTA', '1.2')))
@@ -98,7 +100,6 @@ def predict(image_bgr, conf_thres=0.25, iou_thres=0.45):
     out = [qx_y_to_float_tensor(t.astype(np.int32), 14, 15) for t in out]
     return out
 
-
 def _wrap_angle(angle):
     """Wrap an angle in radians to [-pi, pi]."""
     return (angle + np.pi) % (2.0 * np.pi) - np.pi
@@ -114,17 +115,18 @@ if __name__ == '__main__':
     #     0.0,
     #     float(os.getenv('CF_IMAGE_PROCESS_INTERVAL', '0.1'))
     # )
-        
-    # Initialize the image index
-    image_index = 0
+
     # Initialize variables for timing
-    last_save_time = 0  # Time when the last image was saved
-    save_interval = 0.25  # Time interval in seconds between saved images
     desired_yaw_rate_cmd = 0.0
     fixed_target_detection = None
     planned_yaw_delta = None
     yaw_target = None
     one_shot_completed = False
+    landing_initiated = False
+    wait_before_landing = False
+    wait_after_takeoff = False
+    wait_start_time = 0
+    takeoff_wait_start_time = 0
 
     ## Initialize motors
     m1_motor = robot.getDevice("m1_motor")
@@ -174,7 +176,7 @@ if __name__ == '__main__':
 
     print("\n")
 
-    print("\n====== Crazyflie Drone with Local YOLO Detection ======\n")
+    print("\n====== Crazyflie Drone with Pedestrian Detection ======\n")
     
     # get serial conn
     fpga_ser = None
@@ -214,14 +216,39 @@ if __name__ == '__main__':
         desired_yaw_rate = desired_yaw_rate_cmd
         height_diff_desired = 0
 
+        if landing_initiated:
+            height_desired -= LANDING_SPEED * dt
+            
+            # Ensure we don't command a height below zero
+            if height_desired < 0:
+                height_desired = 0
 
-        if not takeoff_done and abs(altitude - FLYING_ATTITUDE) > takeoff_tolerance:
+            # Check if the drone has landed
+            if altitude < GROUND_THRESHOLD:
+                print("[crazyflie] Landed successfully.")
+                break  # Exit the main loop
+        
+        elif wait_before_landing:
+            if current_time - wait_start_time >= 3.0:
+                print("[crazyflie] Initiating landing.")
+                wait_before_landing = False
+                landing_initiated = True
+        
+        elif wait_after_takeoff:
+            if current_time - takeoff_wait_start_time >= 4.0:
+                print(f"[crazyflie] Takeoff complete.")
+                wait_after_takeoff = False
+                takeoff_done = True
+
+        elif not takeoff_done and abs(altitude - FLYING_ATTITUDE) > takeoff_tolerance:
             height_desired += height_diff_desired * dt
             # print(f"Taking off to {height_desired} m")
+        
+        elif not takeoff_done:
+            wait_after_takeoff = True
+            takeoff_wait_start_time = current_time
+
         else:           
-            takeoff_done = True
-            
-            
             # # Run camera rendering and YOLO at a lower, configurable rate.
             # Capture camera image
             raw_image = camera.getImage()
@@ -237,23 +264,38 @@ if __name__ == '__main__':
                 else:
                     print("Running FPGA inference...")
                     detections = predict_with_fpga(fpga_ser, image)
-                    
+
                 if detections and len(detections[0]) > 0:
-                    # Get the first detection
-                    box = detections[0][0]
-                    x1, y1, x2, y2, conf, pred_cls = box
-                    
                     # Scale detection from model input size to camera size
                     # The model output is relative to its input size (e.g., 128x128)
                     # We need to find the original bbox center in the camera frame.
                     session = ort.InferenceSession(MODEL_PATH, providers=["CPUExecutionProvider"])
                     input_shape = session.get_inputs()[0].shape
-                    model_input_w = input_shape[3]
+                    model_input_hw = input_shape[2:] # e.g., (128, 128)
+                    
+                    # Get the first detection
+                    box = detections[0][0]
+                    x1, y1, x2, y2, conf, pred_cls = box
+                    
+                    # Scale box to camera space and draw
+                    scale_x = camera_width / model_input_hw[-1]
+                    scale_y = camera_height / model_input_hw[-2]
+                    x1_cam, y1_cam = int(x1 * scale_x), int(y1 * scale_y)
+                    x2_cam, y2_cam = int(x2 * scale_x), int(y2 * scale_y)
+                    detection_image = image.copy()
+                    cv2.rectangle(detection_image, (x1_cam, y1_cam), (x2_cam, y2_cam), (0, 255, 0), 2)
+                    
+                    label = f"{float(conf) * 100:.1f}%"
+                    cv2.putText(detection_image, label, (x1_cam, y1_cam - 8),
+                                cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 1)
+
+                    # --- Save #1: frame at detection time with bounding box ---
+                    cv2.imwrite("detection_pedestrian.png", detection_image)
                     
                     bbox_center_x_model = (x1 + x2) / 2.0
                     
                     # Convert model-space coordinate to camera-space coordinate
-                    bbox_center_x_camera = (bbox_center_x_model / model_input_w) * camera_width
+                    bbox_center_x_camera = (bbox_center_x_model / model_input_hw[-1]) * camera_width
                     
                     image_center_x = camera_width / 2.0
                     
@@ -288,14 +330,12 @@ if __name__ == '__main__':
                     yaw_target = None
                     planned_yaw_delta = 0.0
                     one_shot_completed = True
+                    wait_before_landing = True
+                    wait_start_time = current_time
                     print('[crazyflie] Open-loop yaw plan completed.')
+                    cv2.imwrite("centered_pedestrian.png", image)
             else:
                 desired_yaw_rate_cmd = 0.0
-
-            # Optional: save the raw camera image periodically (without bounding boxes).
-            if current_time - last_save_time >= save_interval:
-                cv2.imwrite("captured_output.png", image)
-                last_save_time = current_time
 
             desired_yaw_rate = desired_yaw_rate_cmd
         
@@ -313,12 +353,20 @@ if __name__ == '__main__':
         past_time = current_time
         past_x_global = x_global
         past_y_global = y_global
-
-
-        # close serial conn
-        if not __RUN_ON_ONNX_RUNTIME__:
-            try:
-                close_serial_connection(fpga_ser)
-                print("Serial connection closed successfully.")
-            except Exception as e:
-                print(f"Error while closing serial connection: {e}")
+        
+    # --- POST-FLIGHT CLEANUP ---
+    print("[crazyflie] Flight loop terminated. Turning off motors.")
+    m1_motor.setVelocity(0)
+    m2_motor.setVelocity(0)
+    m3_motor.setVelocity(0)
+    m4_motor.setVelocity(0)
+    
+    # Clean up serial connection on exit
+    if not __RUN_ON_ONNX_RUNTIME__ and fpga_ser is not None:
+        try:
+            close_serial_connection(fpga_ser)
+            print("Serial connection closed successfully.")
+        except Exception as e:
+            print(f"Error while closing serial connection: {e}")
+    else:
+        print("ONNX Runtime inference was used. No serial connection to close.")
