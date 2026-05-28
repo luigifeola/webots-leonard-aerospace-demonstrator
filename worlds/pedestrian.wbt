@@ -21,9 +21,10 @@ WorldInfo {
   ]
 }
 Viewpoint {
-  orientation 0.15931 0.968621 0.190773 0.189408
-  position -10.0 -0.278976 2.00466
+  orientation 0.15121671556812913 0.5463840946420672 0.8237705542534014 0.07928861360876484
+  position -9.109328430130804 -0.1383388636152636 1.2184159900455058
   follow "Crazyflie"
+  followType "Pan and Tilt Shot"
 }
 TexturedBackground {
 }
@@ -40,7 +41,6 @@ CircleArena {
 Pedestrian {
   translation 4 -3 1.26
 }
-
 DEF CRAZYFLIE Robot {
   translation -6 0 0.015
   children [
@@ -93,14 +93,12 @@ DEF CRAZYFLIE Robot {
       ]
     }
     Camera {
-      name "camera"
       translation 0.03 0 0.01
       fieldOfView 0.87
       width 324
       height 324
     }
     Display {
-      name "display"
       width 324
       height 324
     }
