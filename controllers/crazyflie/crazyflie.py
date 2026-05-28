@@ -285,9 +285,9 @@ if __name__ == '__main__':
                     detection_image = image.copy()
                     cv2.rectangle(detection_image, (x1_cam, y1_cam), (x2_cam, y2_cam), (0, 255, 0), 2)
                     
-                    label = f"{float(conf) * 100:.1f}%"
-                    cv2.putText(detection_image, label, (x1_cam, y1_cam - 8),
-                                cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 1)
+                    # label = f"{float(conf) * 100:.1f}%"
+                    # cv2.putText(detection_image, label, (x1_cam, y1_cam - 8),
+                    #             cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 1)
 
                     # --- Save #1: frame at detection time with bounding box ---
                     cv2.imwrite("detection_pedestrian.png", detection_image)
